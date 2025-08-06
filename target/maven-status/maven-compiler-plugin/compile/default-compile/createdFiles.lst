@@ -1,0 +1,3 @@
+com\example\kafkaoffsetreader\KafkaOffsetReaderApplication.class
+com\example\kafkaoffsetreader\KafkaReaderService.class
+com\example\kafkaoffsetreader\KafkaReaderController.class
