@@ -26,7 +26,6 @@ import java.util.Properties;
 public class ExternalConfigLoader {
     
     private static final Logger logger = LoggerFactory.getLogger(ExternalConfigLoader.class);
-    private static final String RELATIVE_CONFIG_PATH = "etc/kafka-rest/er-kafka-rest.properties";
     
     private Properties externalProperties;
     
@@ -46,13 +45,10 @@ public class ExternalConfigLoader {
             String jarPath = getJarLocation();
             logger.info("JAR location detected: {}", jarPath);
             
-            // Construct path to external config file
-            Path configPath = Paths.get(jarPath).getParent().resolve(RELATIVE_CONFIG_PATH);
-            File configFile = configPath.toFile();
+            // Try multiple locations for external config
+            File configFile = findConfigFile(jarPath);
             
-            logger.info("Looking for external config at: {}", configFile.getAbsolutePath());
-            
-            if (configFile.exists() && configFile.isFile()) {
+            if (configFile != null && configFile.exists() && configFile.isFile()) {
                 logger.info("✅ External configuration file found: {}", configFile.getAbsolutePath());
                 
                 try (FileInputStream fis = new FileInputStream(configFile)) {
@@ -72,7 +68,7 @@ public class ExternalConfigLoader {
                     logger.error("❌ Failed to read external config file: {}", e.getMessage());
                 }
             } else {
-                logger.warn("⚠️ External configuration file not found at: {}", configFile.getAbsolutePath());
+                logger.warn("⚠️ External configuration file not found in any expected location");
                 logger.info("   Using default configuration from application.properties");
             }
             
@@ -81,6 +77,33 @@ public class ExternalConfigLoader {
         }
         
         return props;
+    }
+    
+    /**
+     * Find external configuration file in multiple possible locations
+     * @param jarPath The detected JAR/classes location
+     * @return File object pointing to the config file, or null if not found
+     */
+    private File findConfigFile(String jarPath) {
+        String[] searchPaths = {
+            // 1. Relative to JAR/classes directory (production)
+            Paths.get(jarPath).getParent().resolve("etc/kafka-rest/er-kafka-rest.properties").toString(),
+            // 2. Project root (development - when running from target/classes)
+            Paths.get(jarPath).getParent().getParent().resolve("etc/kafka-rest/er-kafka-rest.properties").toString(),
+            // 3. Current working directory
+            Paths.get("etc/kafka-rest/er-kafka-rest.properties").toString()
+        };
+        
+        for (String path : searchPaths) {
+            File configFile = new File(path);
+            logger.info("Checking for external config at: {}", configFile.getAbsolutePath());
+            if (configFile.exists() && configFile.isFile()) {
+                logger.info("✅ Found external config at: {}", configFile.getAbsolutePath());
+                return configFile;
+            }
+        }
+        
+        return null;
     }
     
     /**

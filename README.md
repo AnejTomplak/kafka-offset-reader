@@ -441,8 +441,11 @@ kafka-offset-reader/
 │   ├── kafka-clients-3.7.1-follower-fetch.jar  # Patched Kafka client
 ├── src/main/java/com/example/kafkaoffsetreader/
 │   ├── KafkaOffsetReaderApplication.java        # Spring Boot main class
-│   ├── KafkaReaderController.java               # REST API endpoints
-│   └── KafkaReaderService.java                  # Kafka consumption logic
+│   ├── KafkaReaderController.java               # REST API endpoints  
+│   ├── HighPerformanceKafkaReaderService.java   # High-performance async Kafka service
+│   ├── KafkaConnectionPool.java                 # Connection pooling for rack-aware consumers
+│   └── config/
+│       └── ExternalConfigLoader.java            # External configuration loader
 ├── src/main/resources/
 │   └── application.properties                   # Configuration
 ├── pom.xml                                      # Maven configuration

@@ -1,100 +1,162 @@
 package com.example.kafkaoffsetreader;
 
-import com.example.kafkaoffsetreader.config.ExternalConfigLoader;
-import org.apache.kafka.clients.consumer.*;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
+/**
+ * Kafka Reader Service
+ * 
+ * Uses connection pooling and async processing to handle
+ * high-volume concurrent requests efficiently.
+ * 
+ * Features:
+ * - Connection pooling (no TCP overhead per request)
+ * - Async processing support
+ * - Thread-safe operations
+ * - Better error handling and monitoring
+ * - Rack-aware consumer fetching
+ */
 @Service
 public class KafkaReaderService {
-
-    @Value("${kafka.bootstrap.servers}")
-    private String bootstrapServers;
-
-    @Value("${kafka.client.rack:}")
-    private String clientRack;
-
+    
+    private static final Logger logger = LoggerFactory.getLogger(KafkaReaderService.class);
+    
     @Autowired
-    private ExternalConfigLoader configLoader;
-
+    private KafkaConnectionPool connectionPool;
+    
+    /**
+     * Synchronous read method for compatibility
+     */
     public List<String> read(String topic, int partition, long offset, int count) {
         return read(topic, partition, offset, count, null);
     }
-
-    public List<String> read(String topic, int partition, long offset, int count, String runtimeClientRack) {
+    
+    /**
+     * Synchronous read with rack preference
+     */
+    public List<String> read(String topic, int partition, long offset, int count, String clientRack) {
+        long startTime = System.currentTimeMillis();
         List<String> results = new ArrayList<>();
-
-        Properties props = new Properties();
+        KafkaConsumer<String, String> consumer = null;
         
-        // Use external config if available, fallback to application.properties
-        String effectiveBootstrapServers = configLoader.getProperty("kafka.bootstrap.servers", bootstrapServers);
-        String configClientRack = configLoader.getProperty("kafka.client.rack", clientRack);
-        
-        props.put("bootstrap.servers", effectiveBootstrapServers);
-        props.put("group.id", "offset-reader-" + UUID.randomUUID()); // Unique group per request
-        props.put("key.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
-        props.put("value.deserializer", "org.apache.kafka.common.serialization.StringDeserializer");
-
-        // Disable auto-commit and set offset strategy
-        props.put("enable.auto.commit", "false");
-        props.put("auto.offset.reset", "earliest");
-
-        // Rack-Aware Follower Fetching
-        // Runtime parameter takes precedence over external config, then application.properties
-        String effectiveRack = runtimeClientRack != null ? runtimeClientRack : 
-                              (!configClientRack.isEmpty() ? configClientRack : null);
-        
-        if (effectiveRack != null && !effectiveRack.isEmpty()) {
-            props.put("client.rack", effectiveRack);
-            String source = runtimeClientRack != null ? " (runtime override)" : 
-                           (!configClientRack.equals(clientRack) ? " (external config)" : " (app config)");
-            System.out.printf("🎯 Rack-aware fetching enabled: client.rack = %s%s%n", 
-                effectiveRack, source);
-        } else {
-            System.out.println("📍 Using default leader fetching (client.rack not set)");
-        }
-
-        // Connection timeouts and debugging enhancements
-        props.put("connections.max.idle.ms", "540000");
-        props.put("metadata.max.age.ms", "300000");
-
-        // Optional tuning
-        props.put("fetch.max.wait.ms", "100");
-        props.put("fetch.min.bytes", "1");
-        props.put("max.poll.records", "100");
-        props.put("request.timeout.ms", "5000");
-        props.put("session.timeout.ms", "10000");
-        props.put("heartbeat.interval.ms", "3000");
-        props.put("client.id", "rack-aware-reader-" + UUID.randomUUID());
-
-        try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
+        try {
+            // Borrow consumer from pool
+            consumer = connectionPool.borrowConsumer(clientRack);
+            
             TopicPartition tp = new TopicPartition(topic, partition);
             consumer.assign(Collections.singletonList(tp));
             consumer.seek(tp, offset);
-
-            System.out.printf("➡ Reading from topic=%s partition=%d offset=%d (rack=%s, servers=%s)%n", 
-                topic, partition, offset, 
-                effectiveRack != null ? effectiveRack : "leader",
-                effectiveBootstrapServers);
-
-            ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(5000));
+            
+            logger.debug("📖 Reading from topic={} partition={} offset={} rack={}", 
+                topic, partition, offset, clientRack != null ? clientRack : "default");
+            
+            ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
+            
             for (ConsumerRecord<String, String> record : records) {
                 results.add(record.value());
                 if (results.size() >= count) break;
             }
-
-            System.out.printf("✅ Retrieved %d record(s)%n", results.size());
-
+            
+            long duration = System.currentTimeMillis() - startTime;
+            logger.debug("✅ Retrieved {} records in {}ms (rack={})", 
+                results.size(), duration, clientRack != null ? clientRack : "default");
+            
         } catch (Exception e) {
-            System.err.println("❌ Error during Kafka read: " + e.getMessage());
-            e.printStackTrace();
+            logger.error("❌ Error reading from Kafka: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to read from Kafka", e);
+        } finally {
+            // Always return consumer to pool
+            if (consumer != null) {
+                connectionPool.returnConsumer(consumer, clientRack);
+            }
         }
-
+        
         return results;
+    }
+    
+    /**
+     * Asynchronous read method for high-throughput scenarios
+     */
+    @Async
+    public CompletableFuture<List<String>> readAsync(String topic, int partition, long offset, int count, String clientRack) {
+        try {
+            List<String> result = read(topic, partition, offset, count, clientRack);
+            return CompletableFuture.completedFuture(result);
+        } catch (Exception e) {
+            CompletableFuture<List<String>> future = new CompletableFuture<>();
+            future.completeExceptionally(e);
+            return future;
+        }
+    }
+    
+    /**
+     * Batch read for multiple partitions - efficient for bulk operations
+     */
+    public List<List<String>> readBatch(String topic, List<Integer> partitions, long offset, int countPerPartition, String clientRack) {
+        List<List<String>> results = new ArrayList<>();
+        
+        // Use single consumer for batch operation (more efficient)
+        KafkaConsumer<String, String> consumer = null;
+        
+        try {
+            consumer = connectionPool.borrowConsumer(clientRack);
+            
+            for (int partition : partitions) {
+                TopicPartition tp = new TopicPartition(topic, partition);
+                consumer.assign(Collections.singletonList(tp));
+                consumer.seek(tp, offset);
+                
+                ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
+                List<String> partitionResults = new ArrayList<>();
+                
+                for (ConsumerRecord<String, String> record : records) {
+                    partitionResults.add(record.value());
+                    if (partitionResults.size() >= countPerPartition) break;
+                }
+                
+                results.add(partitionResults);
+            }
+            
+            logger.info("✅ Batch read completed: {} partitions, {} total records", 
+                partitions.size(), results.stream().mapToInt(List::size).sum());
+            
+        } catch (Exception e) {
+            logger.error("❌ Error in batch read: {}", e.getMessage(), e);
+            throw new RuntimeException("Batch read failed", e);
+        } finally {
+            if (consumer != null) {
+                connectionPool.returnConsumer(consumer, clientRack);
+            }
+        }
+        
+        return results;
+    }
+    
+    /**
+     * Health check method
+     */
+    public boolean isHealthy() {
+        try {
+            // Try to borrow and return a consumer
+            KafkaConsumer<String, String> consumer = connectionPool.borrowConsumer(null);
+            connectionPool.returnConsumer(consumer, null);
+            return true;
+        } catch (Exception e) {
+            logger.warn("Health check failed: {}", e.getMessage());
+            return false;
+        }
     }
 }
