@@ -98,7 +98,7 @@ public class ExternalConfigLoader {
             File configFile = new File(path);
             logger.info("Checking for external config at: {}", configFile.getAbsolutePath());
             if (configFile.exists() && configFile.isFile()) {
-                logger.info("✅ Found external config at: {}", configFile.getAbsolutePath());
+                logger.info("Found external config at: {}", configFile.getAbsolutePath());
                 return configFile;
             }
         }
