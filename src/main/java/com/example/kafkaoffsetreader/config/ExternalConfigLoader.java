@@ -49,11 +49,11 @@ public class ExternalConfigLoader {
             File configFile = findConfigFile(jarPath);
             
             if (configFile != null && configFile.exists() && configFile.isFile()) {
-                logger.info("✅ External configuration file found: {}", configFile.getAbsolutePath());
+                logger.info("External configuration file found: {}", configFile.getAbsolutePath());
                 
                 try (FileInputStream fis = new FileInputStream(configFile)) {
                     props.load(fis);
-                    logger.info("✅ Successfully loaded {} properties from external config", props.size());
+                    logger.info("Successfully loaded {} properties from external config", props.size());
                     
                     // Log loaded properties (excluding sensitive data)
                     props.forEach((key, value) -> {
@@ -65,15 +65,15 @@ public class ExternalConfigLoader {
                         }
                     });
                 } catch (IOException e) {
-                    logger.error("❌ Failed to read external config file: {}", e.getMessage());
+                    logger.error("Failed to read external config file: {}", e.getMessage());
                 }
             } else {
-                logger.warn("⚠️ External configuration file not found in any expected location");
+                logger.warn("External configuration file not found in any expected location");
                 logger.info("   Using default configuration from application.properties");
             }
             
         } catch (Exception e) {
-            logger.error("❌ Error loading external configuration: {}", e.getMessage(), e);
+            logger.error("Error loading external configuration: {}", e.getMessage(), e);
         }
         
         return props;

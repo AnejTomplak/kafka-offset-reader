@@ -31,28 +31,5 @@ public class KafkaReaderController {
     ) {
         return kafkaReaderService.readAsync(topic, partition, offset, count, clientRack);
     }
-    
-    /**
-     * Connection pool monitoring endpoint
-     */
-    @GetMapping("/monitoring/pool-stats")
-    public Map<String, Object> getPoolStats() {
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("connectionPools", connectionPool.getPoolStats());
-        stats.put("serviceHealth", kafkaReaderService.isHealthy());
-        stats.put("timestamp", System.currentTimeMillis());
-        return stats;
-    }
-    
-    /**
-     * Health check endpoint
-     */
-    @GetMapping("/health")
-    public Map<String, Object> healthCheck() {
-        Map<String, Object> health = new HashMap<>();
-        health.put("status", kafkaReaderService.isHealthy() ? "UP" : "DOWN");
-        health.put("connectionPools", connectionPool.getPoolStats());
-        return health;
-    }
 }
 

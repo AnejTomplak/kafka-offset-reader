@@ -10,10 +10,7 @@ package com.example.kafkaoffsetreader;
  *    COMPILE: mvn clean compile
  *    RUN: mvn spring-boot:run
  * 4. Access the API at:
- *    GET /read?topic=your_topic&partition=0&offset=12345&count=10
- *    GET /read?topic=your_topic&partition=0&offset=12345&count=10&clientRack=zone-a
- *    GET /topics/{topic}/partitions/{partition}/messages  (main endpoint)
- *    GET /topics/{topic}/partitions/{partition}/messages?clientRack=zone-a  (rack-aware)
+ *    GET /topics/{topic}/partitions/{partition}/messages?offset={offset}&count={count}&clientRack={clientRack}
  *    GET /monitoring/pool-stats  (connection pool monitoring)
  */
 

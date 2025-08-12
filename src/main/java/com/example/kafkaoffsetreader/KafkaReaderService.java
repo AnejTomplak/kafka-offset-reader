@@ -58,10 +58,21 @@ public class KafkaReaderService {
             
             TopicPartition tp = new TopicPartition(topic, partition);
             consumer.assign(Collections.singletonList(tp));
-            consumer.seek(tp, offset);
             
-            logger.debug("📖 Reading from topic={} partition={} offset={} rack={}", 
-                topic, partition, offset, clientRack != null ? clientRack : "default");
+            // Handle special offsets: -1 = beginning, -2 = end
+            long effectiveOffset = offset;
+            if (offset == -1) {
+                effectiveOffset = consumer.beginningOffsets(Collections.singletonList(tp)).getOrDefault(tp, 0L);
+            } else if (offset == -2) {
+                effectiveOffset = consumer.endOffsets(Collections.singletonList(tp)).getOrDefault(tp, 0L);
+            } else if (offset < 0) {
+                throw new IllegalArgumentException("Invalid offset: " + offset + ". Use -1 for beginning, -2 for end, or >= 0 for specific offset");
+            }
+            
+            consumer.seek(tp, effectiveOffset);
+            
+            logger.debug("Reading from topic={} partition={} offset={} (effective={}) rack={}", 
+                topic, partition, offset, effectiveOffset, clientRack != null ? clientRack : "default");
             
             ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
             
@@ -71,11 +82,11 @@ public class KafkaReaderService {
             }
             
             long duration = System.currentTimeMillis() - startTime;
-            logger.debug("✅ Retrieved {} records in {}ms (rack={})", 
-                results.size(), duration, clientRack != null ? clientRack : "default");
+            logger.debug("Retrieved {} records in {}ms (rack={}, from offset={})", 
+                results.size(), duration, clientRack != null ? clientRack : "default", effectiveOffset);
             
         } catch (Exception e) {
-            logger.error("❌ Error reading from Kafka: {}", e.getMessage(), e);
+            logger.error("Error reading from Kafka: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to read from Kafka", e);
         } finally {
             // Always return consumer to pool
@@ -99,64 +110,6 @@ public class KafkaReaderService {
             CompletableFuture<List<String>> future = new CompletableFuture<>();
             future.completeExceptionally(e);
             return future;
-        }
-    }
-    
-    /**
-     * Batch read for multiple partitions - efficient for bulk operations
-     */
-    public List<List<String>> readBatch(String topic, List<Integer> partitions, long offset, int countPerPartition, String clientRack) {
-        List<List<String>> results = new ArrayList<>();
-        
-        // Use single consumer for batch operation (more efficient)
-        KafkaConsumer<String, String> consumer = null;
-        
-        try {
-            consumer = connectionPool.borrowConsumer(clientRack);
-            
-            for (int partition : partitions) {
-                TopicPartition tp = new TopicPartition(topic, partition);
-                consumer.assign(Collections.singletonList(tp));
-                consumer.seek(tp, offset);
-                
-                ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
-                List<String> partitionResults = new ArrayList<>();
-                
-                for (ConsumerRecord<String, String> record : records) {
-                    partitionResults.add(record.value());
-                    if (partitionResults.size() >= countPerPartition) break;
-                }
-                
-                results.add(partitionResults);
-            }
-            
-            logger.info("✅ Batch read completed: {} partitions, {} total records", 
-                partitions.size(), results.stream().mapToInt(List::size).sum());
-            
-        } catch (Exception e) {
-            logger.error("❌ Error in batch read: {}", e.getMessage(), e);
-            throw new RuntimeException("Batch read failed", e);
-        } finally {
-            if (consumer != null) {
-                connectionPool.returnConsumer(consumer, clientRack);
-            }
-        }
-        
-        return results;
-    }
-    
-    /**
-     * Health check method
-     */
-    public boolean isHealthy() {
-        try {
-            // Try to borrow and return a consumer
-            KafkaConsumer<String, String> consumer = connectionPool.borrowConsumer(null);
-            connectionPool.returnConsumer(consumer, null);
-            return true;
-        } catch (Exception e) {
-            logger.warn("Health check failed: {}", e.getMessage());
-            return false;
         }
     }
 }
