@@ -56,8 +56,6 @@ kafka.client.rack=your-zone
 | Endpoint | Description |
 |----------|-------------|
 | `GET /topics/{topic}/partitions/{partition}/messages` | Read messages from Kafka |
-| `GET /health` | Application health check |
-| `GET /monitoring/pool-stats` | Connection pool statistics |
 
 ### Parameters
 - `offset` (required) - Starting offset
