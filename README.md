@@ -1,36 +1,173 @@
-# Kafka Rack-Aware Offset Reader
+# Kafka Offset Reader
 
-A Spring Boot microservice that enables rack-aware Kafka consumption, allowing clients to read from local replicas instead of always hitting partition leaders.
+A high-performance Spring Boot application that provides REST API access to Kafka messages with rack-aware optimization and connection pooling.
 
-## 🚀 Key Features
+## Features
 
-- **Rack-aware consumption** - Read from replicas in your zone/rack
-- **Connection pooling** - Efficient resource management for high throughput
-- **External configuration** - Change settings without rebuilding
-- **REST API** - Simple HTTP interface for Kafka reading
-- **Multi-threading support** - Handle concurrent requests efficiently
+- **Rack-aware message fetching** for optimized network performance
+- **Connection pooling** with pre-allocated consumers and producers
+- **Async processing** for high throughput operations
+- **External configuration** support via ER properties
+- **Real-time monitoring** of connection pools
+- **Message production** with batch optimization
+- **Performance tuning** based on ER Kafka REST configurations
 
-## 📋 Quick Start
+## API Endpoints
 
-### Prerequisites
-- Java 11+
-- Maven 3.6+
-- Kafka cluster running
+### Read Messages
+```
+GET /topics/{topic}/partitions/{partition}/messages
+```
+**Parameters:**
+- `offset` (required): Starting offset to read from
+- `count` (optional): Number of messages to retrieve (default: 10, max: 1000)
+- `clientRack` (optional): Preferred rack for rack-aware fetching
 
-### 1. Build and Run
+**Example:**
 ```bash
+curl "http://localhost:8080/topics/my-topic/partitions/0/messages?offset=100&count=5&clientRack=zone-a"
+```
+
+### Produce Messages
+```
+POST /topics/{topic}
+```
+**Parameters:**
+- `clientRack` (optional): Rack preference for producer optimization
+
+**Request Body:**
+```json
+{
+  "records": [
+    {
+      "key": "message-key",
+      "value": "message content",
+      "partition": 0
+    }
+  ]
+}
+```
+
+**Example:**
+```bash
+curl -X POST "http://localhost:8080/topics/my-topic" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "records": [
+      {
+        "key": "user-123",
+        "value": "Hello Kafka!",
+        "partition": 0
+      }
+    ]
+  }'
+```
+
+### Get Partition Offsets
+```
+GET /topics/{topic}/partitions/{partition}/offsets
+```
+**Parameters:**
+- `clientRack` (optional): Rack preference for optimization
+
+**Response:**
+```json
+{
+  "beginning_offset": 0,
+  "end_offset": 1234
+}
+```
+
+### Monitoring
+```
+GET /monitoring/pool-stats
+```
+Returns connection pool statistics and health information.
+
+## Setup
+
+### Environment Variables
+```bash
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092,localhost:9094,localhost:9096
+CLIENT_RACK=zone-c
+EXTERNAL_CONFIG_PATH=/path/to/er-kafka-rest.properties
+```
+
+### Running the Application
+```bash
+# Compile
 mvn clean compile
+
+# Run
 mvn spring-boot:run
 ```
 
-### 2. Test the API
-```bash
-# Read messages from partition 0
-curl "http://localhost:8080/topics/test-topic/partitions/0/messages?offset=0&count=5"
-
-# Read with rack preference
-curl "http://localhost:8080/topics/test-topic/partitions/0/messages?offset=0&count=5&clientRack=zone-a"
+### External Configuration
+Place your ER configuration file at the specified path:
+```properties
+# er-kafka-rest.properties
+bootstrap.servers=localhost:9092,localhost:9094,localhost:9096
+client.rack=zone-c
+fetch.max.wait.ms=250
+batch.size=16384
+linger.ms=5
+# ... other ER optimizations
 ```
+
+## Performance Features
+
+- **15 pre-allocated consumers** per rack for instant message retrieval
+- **Producer pooling** with rack-aware routing
+- **Optimized fetch settings** from ER configuration
+- **Async thread pool** (10-50 threads) for concurrent operations
+- **Connection reuse** to minimize TCP overhead
+
+## Response Format
+
+**Read Response:**
+```json
+["message1", "message2", "message3"]
+```
+
+**Produce Response:**
+```json
+{
+  "offsets": [
+    {
+      "partition": 0,
+      "offset": 12345
+    }
+  ]
+}
+```
+
+**Offsets Response:**
+```json
+{
+  "beginning_offset": 0,
+  "end_offset": 1234
+}
+```
+
+**Pool Stats Response:**
+```json
+{
+  "totalPools": 2,
+  "activeConsumers": 28,
+  "availableConsumers": 2,
+  "poolDetails": {...}
+}
+```
+
+## Architecture
+
+This application significantly outperforms the standard Kafka REST Proxy through:
+
+1. **Rack-aware optimization**: Consumers fetch from same-rack brokers
+2. **Connection pooling**: Eliminates connection setup overhead
+3. **ER configuration**: Uses enterprise-grade Kafka settings
+4. **Async processing**: Non-blocking operations for high throughput
+5. **Producer efficiency**: Batching and rack-aware message routing
 
 ## ⚙️ Configuration
 
@@ -50,12 +187,6 @@ Create `etc/kafka-rest/er-kafka-rest.properties` relative to your JAR:
 kafka.bootstrap.servers=your-kafka-brokers:9092
 kafka.client.rack=your-zone
 ```
-
-## � API Endpoints
-
-| Endpoint | Description |
-|----------|-------------|
-| `GET /topics/{topic}/partitions/{partition}/messages` | Read messages from Kafka |
 
 ### Parameters
 - `offset` (required) - Starting offset
@@ -414,16 +545,24 @@ This ensures the patched JAR is automatically installed to your local Maven repo
 ```
 kafka-offset-reader/
 ├── lib/
-│   ├── kafka-clients-3.7.1-follower-fetch.jar  # Patched Kafka client
+│   └── kafka-clients-4.2.0-follower-fetch.jar  # Patched Kafka client for rack-aware fetching
 ├── src/main/java/com/example/kafkaoffsetreader/
-│   ├── KafkaOffsetReaderApplication.java        # Spring Boot main class
-│   ├── KafkaReaderController.java               # REST API endpoints  
-│   ├── KafkaReaderService.java                  # High-performance async Kafka service
-│   ├── KafkaConnectionPool.java                 # Connection pooling for rack-aware consumers
+│   ├── KafkaOffsetReaderApplication.java        # Spring Boot main class with async configuration
+│   ├── KafkaReaderController.java               # REST API endpoints (GET/POST/monitoring)
+│   ├── KafkaReaderService.java                  # Kafka read operations with connection pooling
+│   ├── KafkaProducerService.java                # Kafka producer service with rack-aware routing
+│   ├── KafkaConnectionPool.java                 # Connection pooling for high-performance consumers
 │   └── config/
-│       └── ExternalConfigLoader.java            # External configuration loader
+│       └── ExternalConfigLoader.java            # ER external configuration loader
 ├── src/main/resources/
-│   └── application.properties                   # Configuration
-├── pom.xml                                      # Maven configuration
-└── README.md                                    # This file
+│   └── application.properties                   # Default application configuration
+├── etc/kafka-rest/
+│   └── er-kafka-rest.properties                 # External configuration (production)
+├── scripts/                                     # Performance testing scripts
+├── target/
+│   ├── classes/                                 # Compiled Java classes
+│   └── kafka-offset-reader-*.jar               # Built application JAR
+├── pom.xml                                      # Maven configuration with patched Kafka dependency
+├── README.md                                    # Complete documentation
+└── RACK_AWARE_TEST_RESULTS.md                  # Performance test results
 ```
