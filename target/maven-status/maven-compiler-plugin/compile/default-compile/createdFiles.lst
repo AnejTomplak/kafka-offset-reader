@@ -1,4 +1,6 @@
+com\example\kafkaoffsetreader\KafkaConnectionPool.class
 com\example\kafkaoffsetreader\config\ExternalConfigLoader.class
 com\example\kafkaoffsetreader\KafkaOffsetReaderApplication.class
+com\example\kafkaoffsetreader\KafkaProducerService.class
 com\example\kafkaoffsetreader\KafkaReaderService.class
 com\example\kafkaoffsetreader\KafkaReaderController.class

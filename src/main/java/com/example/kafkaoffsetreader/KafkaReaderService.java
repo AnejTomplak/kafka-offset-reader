@@ -13,7 +13,9 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -112,4 +114,39 @@ public class KafkaReaderService {
             return future;
         }
     }
+
+    /**
+ * Get partition beginning and end offsets
+ */
+    @Async
+    public CompletableFuture<Map<String, Long>> getOffsetsAsync(String topic, int partition, String clientRack) {
+        KafkaConsumer<String, String> consumer = null;
+        try {
+            consumer = connectionPool.borrowConsumer(clientRack);
+            
+            TopicPartition topicPartition = new TopicPartition(topic, partition);
+            consumer.assign(Collections.singletonList(topicPartition));
+            
+            long beginningOffset = consumer.beginningOffsets(Collections.singletonList(topicPartition))
+                .get(topicPartition);
+            long endOffset = consumer.endOffsets(Collections.singletonList(topicPartition))
+                .get(topicPartition);
+            
+            Map<String, Long> result = new HashMap<>();
+            result.put("beginning_offset", beginningOffset);
+            result.put("end_offset", endOffset);
+            
+            return CompletableFuture.completedFuture(result);
+            
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to get offsets for " + topic + "-" + partition, e);
+        } finally {
+            if (consumer != null) {
+                connectionPool.returnConsumer(consumer, clientRack);
+            }
+        }
+    }
+
 }
+
+
