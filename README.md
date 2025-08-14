@@ -96,6 +96,7 @@ EXTERNAL_CONFIG_PATH=/path/to/er-kafka-rest.properties
 ### Running the Application
 ```bash
 # Compile
+mvn initialize
 mvn clean compile
 
 # Run
