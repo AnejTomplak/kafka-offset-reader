@@ -238,6 +238,34 @@ public class KafkaConnectionPool {
     }
 
     /**
+     * Get Kafka properties for AdminClient creation
+     */
+    public Properties getAdminProperties() {
+        Properties props = new Properties();
+        
+        // Use external config if available
+        String effectiveBootstrapServers = configLoader.getProperty("kafka.bootstrap.servers", bootstrapServers);
+        props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, effectiveBootstrapServers);
+        
+        // Apply performance settings for AdminClient
+        copyIfPresent(props, "kafka.request.timeout.ms", CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG);
+        copyIfPresent(props, "kafka.connections.max.idle.ms", CommonClientConfigs.CONNECTIONS_MAX_IDLE_MS_CONFIG);
+        copyIfPresent(props, "kafka.metadata.max.age.ms", "metadata.max.age.ms");
+        
+        // Client ID for AdminClient
+        String erClientId = configLoader.getProperty("kafka.client.id", "er-kafka-admin");
+        props.put(CommonClientConfigs.CLIENT_ID_CONFIG, erClientId + "-admin-" + UUID.randomUUID());
+        
+        // Rack configuration for AdminClient
+        String erRack = configLoader.getProperty("kafka.client.rack", "");
+        if (erRack != null && !erRack.isEmpty()) {
+            props.put(CommonClientConfigs.CLIENT_RACK_CONFIG, erRack);
+        }
+        
+        return props;
+    }
+
+    /**
      * Copy a Kafka client property from ER config into the given Properties if present
      */
     private void copyIfPresent(Properties target, String erKey, String kafkaKey) {
