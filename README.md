@@ -101,7 +101,7 @@ EXTERNAL_CONFIG_PATH=/path/to/er-kafka-rest.properties
 mvn clean package -DskipTests
 java -jar target/kafka-offset-reader-1.0.0.jar
 ```
-*Uses configuration from `src/main/resources/application.properties`*
+*Uses configuration from `etc/kafka-rest/er-kafka-rest.properties`*
 
 #### Option 2: External Configuration File
 ```bash
