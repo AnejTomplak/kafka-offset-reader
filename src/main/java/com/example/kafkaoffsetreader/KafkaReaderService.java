@@ -3,6 +3,7 @@ package com.example.kafkaoffsetreader;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,6 +58,13 @@ public class KafkaReaderService {
         try {
             // Borrow consumer from pool
             consumer = connectionPool.borrowConsumer(clientRack);
+            
+            // Validate partition exists using consumer metadata
+            List<PartitionInfo> partitionInfos = consumer.partitionsFor(topic);
+            if (partitionInfos == null || partition >= partitionInfos.size()) {
+                // Invalid partition - throw exception to be handled by controller
+                throw new IllegalArgumentException("Partition " + partition + " does not exist for topic " + topic);
+            }
             
             TopicPartition tp = new TopicPartition(topic, partition);
             consumer.assign(Collections.singletonList(tp));
@@ -125,6 +133,14 @@ public class KafkaReaderService {
             consumer = connectionPool.borrowConsumer(clientRack);
             
             TopicPartition topicPartition = new TopicPartition(topic, partition);
+            
+            // First, check if the topic exists and get partition count using consumer metadata
+            List<PartitionInfo> partitionInfos = consumer.partitionsFor(topic);
+            if (partitionInfos == null || partition >= partitionInfos.size()) {
+                // Invalid partition - return null to indicate non-existence
+                return CompletableFuture.completedFuture(null);
+            }
+            
             consumer.assign(Collections.singletonList(topicPartition));
             
             long beginningOffset = consumer.beginningOffsets(Collections.singletonList(topicPartition))

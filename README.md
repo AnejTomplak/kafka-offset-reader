@@ -94,12 +94,62 @@ EXTERNAL_CONFIG_PATH=/path/to/er-kafka-rest.properties
 ```
 
 ### Running the Application
+
+#### Option 1: Default Configuration
+```bash
+# Compile and run with built-in settings
+mvn clean package -DskipTests
+java -jar target/kafka-offset-reader-1.0.0.jar
+```
+*Uses configuration from `src/main/resources/application.properties`*
+
+#### Option 2: External Configuration File
+```bash
+# Run with external properties file
+java -jar target/kafka-offset-reader-1.0.0.jar /path/to/your/config.properties
+```
+
+**Example with relative path:**
+```bash
+# Place config file relative to JAR location
+java -jar target/kafka-offset-reader-1.0.0.jar .\etc\kafka-rest\er-kafka-rest.properties
+```
+
+**Example with absolute path:**
+```bash
+# Use absolute path to config file
+java -jar target/kafka-offset-reader-1.0.0.jar C:\kafka-configs\production.properties
+```
+
+#### Configuration File Format
+Create your external configuration file with any Spring Boot properties:
+```properties
+# External configuration example: er-kafka-rest.properties
+kafka.bootstrap.servers=prod-broker1:9092,prod-broker2:9094,prod-broker3:9096
+kafka.client.rack=zone-a
+server.port=8080
+
+# Consumer optimization
+kafka.consumer.fetch.max.wait.ms=250
+kafka.consumer.max.poll.records=500
+
+# Producer optimization  
+kafka.producer.batch.size=16384
+kafka.producer.linger.ms=5
+```
+
+#### Configuration Priority
+1. **Command line config file** (highest priority)
+2. **Built-in application.properties** (fallback)
+3. **Default values** (lowest priority)
+
+### Maven Development
 ```bash
 # Compile
 mvn initialize
 mvn clean compile
 
-# Run
+# Run in development
 mvn spring-boot:run
 ```
 

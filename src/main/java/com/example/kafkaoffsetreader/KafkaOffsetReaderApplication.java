@@ -1,43 +1,76 @@
 package com.example.kafkaoffsetreader;
 
-/* HOW TO RUN
- * 1. Ensure Kafka is running and accessible.
- * 2. Set the following environment variables:
- *    - KAFKA_BOOTSTRAP_SERVERS: Kafka broker address (e.g., localhost:9092)
- *    - CLIENT_RACK: Broker zone (optional, for rack-aware fetching)
- *    - EXTERNAL_CONFIG_PATH: Path to external properties file (optional)
- * 3. Run this application using:
- *    COMPILE: mvn clean compile
- *    RUN: mvn spring-boot:run
- * 4. Access the API at:
- *    GET /topics/{topic}/partitions/{partition}/messages?offset={offset}&count={count}&clientRack={clientRack}
- *    GET /monitoring/pool-stats  (connection pool monitoring)
- */
-
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.context.annotation.Bean;
-import org.springframework.scheduling.annotation.EnableAsync;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
-
-import java.util.concurrent.Executor;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Properties;
 
 @SpringBootApplication
-@EnableAsync
 public class KafkaOffsetReaderApplication {
-    
+
     public static void main(String[] args) {
+        String configFile = null;
+        
+        // Check if config file argument is provided
+        if (args.length > 0) {
+            configFile = args[0];
+            System.out.println("Using specified configuration file: " + configFile);
+        } else {
+            // Try to find default config file in current directory
+            String[] defaultPaths = {
+                "./etc/kafka-rest/er-kafka-rest.properties",
+                "etc/kafka-rest/er-kafka-rest.properties",
+                "./er-kafka-rest.properties",
+                "er-kafka-rest.properties"
+            };
+            
+            for (String defaultPath : defaultPaths) {
+                Path path = Paths.get(defaultPath);
+                if (Files.exists(path) && Files.isReadable(path)) {
+                    configFile = defaultPath;
+                    System.out.println("Found and using default configuration file: " + configFile);
+                    break;
+                }
+            }
+            
+            if (configFile == null) {
+                System.out.println("No configuration file specified and no default config found, using embedded application.properties");
+            }
+        }
+        
+        // Load external configuration if found
+        if (configFile != null) {
+            try {
+                loadExternalConfig(configFile);
+            } catch (IOException e) {
+                System.err.println("Failed to load configuration file: " + configFile + " - " + e.getMessage());
+                System.err.println("Falling back to embedded application.properties");
+            }
+        }
+        
         SpringApplication.run(KafkaOffsetReaderApplication.class, args);
     }
     
-    @Bean(name = "taskExecutor")
-    public Executor taskExecutor() {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(10);
-        executor.setMaxPoolSize(50);
-        executor.setQueueCapacity(100);
-        executor.setThreadNamePrefix("kafka-async-");
-        executor.initialize();
-        return executor;
+    private static void loadExternalConfig(String configFile) throws IOException {
+        Properties props = new Properties();
+        try (FileInputStream fis = new FileInputStream(configFile)) {
+            props.load(fis);
+            System.out.println("Successfully loaded " + props.size() + " properties from: " + configFile);
+            
+            // Set properties as system properties so they can be used by Spring Boot
+            for (String key : props.stringPropertyNames()) {
+                String value = props.getProperty(key);
+                System.setProperty(key, value);
+                // Debug output for key properties
+                if (key.contains("bootstrap.servers") || key.contains("client.rack") || 
+                    key.contains("fetch.max.wait") || key.contains("server.port")) {
+                    System.out.println("  " + key + " = " + value);
+                }
+            }
+        }
     }
 }
