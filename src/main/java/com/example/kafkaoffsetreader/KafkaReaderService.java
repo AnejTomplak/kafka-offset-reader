@@ -13,8 +13,10 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -43,17 +45,17 @@ public class KafkaReaderService {
     /**
      * Synchronous read method for compatibility
      */
-    public List<String> read(String topic, int partition, long offset, int count) {
+    public List<Map<String, Object>> read(String topic, int partition, long offset, int count) {
         return read(topic, partition, offset, count, null);
     }
     
     /**
      * Synchronous read with rack preference
      */
-    public List<String> read(String topic, int partition, long offset, int count, String clientRack) {
+    public List<Map<String, Object>> read(String topic, int partition, long offset, int count, String clientRack) {
         long startTime = System.currentTimeMillis();
-        List<String> results = new ArrayList<>();
-        KafkaConsumer<String, String> consumer = null;
+        List<Map<String, Object>> results = new ArrayList<>();
+        KafkaConsumer<String, byte[]> consumer = null;
         
         try {
             // Borrow consumer from pool
@@ -84,10 +86,31 @@ public class KafkaReaderService {
             logger.debug("Reading from topic={} partition={} offset={} (effective={}) rack={}", 
                 topic, partition, offset, effectiveOffset, clientRack != null ? clientRack : "default");
             
-            ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
+            ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofMillis(500));
             
-            for (ConsumerRecord<String, String> record : records) {
-                results.add(record.value());
+            for (ConsumerRecord<String, byte[]> record : records) {
+                // Create response object in Kafka REST proxy format - topic, key, value, partition, offset order
+                Map<String, Object> message = new LinkedHashMap<>();
+                message.put("topic", record.topic());
+                
+                // Encode key as base64 if exists
+                if (record.key() != null) {
+                    message.put("key", Base64.getEncoder().encodeToString(record.key().getBytes()));
+                } else {
+                    message.put("key", null);
+                }
+                
+                // Encode value as base64 if exists
+                if (record.value() != null) {
+                    message.put("value", Base64.getEncoder().encodeToString(record.value()));
+                } else {
+                    message.put("value", null);
+                }
+                
+                message.put("partition", record.partition());
+                message.put("offset", record.offset());
+                
+                results.add(message);
                 if (results.size() >= count) break;
             }
             
@@ -112,12 +135,12 @@ public class KafkaReaderService {
      * Asynchronous read method for high-throughput scenarios
      */
     @Async
-    public CompletableFuture<List<String>> readAsync(String topic, int partition, long offset, int count, String clientRack) {
+    public CompletableFuture<List<Map<String, Object>>> readAsync(String topic, int partition, long offset, int count, String clientRack) {
         try {
-            List<String> result = read(topic, partition, offset, count, clientRack);
+            List<Map<String, Object>> result = read(topic, partition, offset, count, clientRack);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
-            CompletableFuture<List<String>> future = new CompletableFuture<>();
+            CompletableFuture<List<Map<String, Object>>> future = new CompletableFuture<>();
             future.completeExceptionally(e);
             return future;
         }
@@ -128,7 +151,7 @@ public class KafkaReaderService {
  */
     @Async
     public CompletableFuture<Map<String, Long>> getOffsetsAsync(String topic, int partition, String clientRack) {
-        KafkaConsumer<String, String> consumer = null;
+        KafkaConsumer<String, byte[]> consumer = null;
         try {
             consumer = connectionPool.borrowConsumer(clientRack);
             

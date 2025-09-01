@@ -50,7 +50,7 @@ public class KafkaConnectionPool {
     // private static final long CONSUMER_TIMEOUT_MS = 30000; // 30 seconds (reserved for future use)
     
     // Separate pools for different rack configurations
-    private final Map<String, BlockingQueue<KafkaConsumer<String, String>>> consumerPools = new ConcurrentHashMap<>();
+    private final Map<String, BlockingQueue<KafkaConsumer<String, byte[]>>> consumerPools = new ConcurrentHashMap<>();
     private final Map<String, ReentrantLock> poolLocks = new ConcurrentHashMap<>();
     
     @PostConstruct
@@ -76,7 +76,7 @@ public class KafkaConnectionPool {
         consumerPools.forEach((rack, pool) -> {
             while (!pool.isEmpty()) {
                 try {
-                    KafkaConsumer<String, String> consumer = pool.poll();
+                    KafkaConsumer<String, byte[]> consumer = pool.poll();
                     if (consumer != null) {
                         consumer.close();
                     }
@@ -95,17 +95,17 @@ public class KafkaConnectionPool {
     /**
      * Get a consumer from the pool for the specified rack
      */
-    public KafkaConsumer<String, String> borrowConsumer(String clientRack) {
+    public KafkaConsumer<String, byte[]> borrowConsumer(String clientRack) {
         String effectiveRack = clientRack != null ? clientRack : getEffectiveRack();
         
-        BlockingQueue<KafkaConsumer<String, String>> pool = consumerPools.get(effectiveRack);
+        BlockingQueue<KafkaConsumer<String, byte[]>> pool = consumerPools.get(effectiveRack);
         if (pool == null) {
             // Create pool on-demand
             createPool(effectiveRack);
             pool = consumerPools.get(effectiveRack);
         }
         
-        KafkaConsumer<String, String> consumer = pool.poll();
+        KafkaConsumer<String, byte[]> consumer = pool.poll();
         if (consumer == null) {
             // Pool is empty, create new consumer
             consumer = createConsumer(effectiveRack);
@@ -120,10 +120,10 @@ public class KafkaConnectionPool {
     /**
      * Return a consumer to the pool
      */
-    public void returnConsumer(KafkaConsumer<String, String> consumer, String clientRack) {
+    public void returnConsumer(KafkaConsumer<String, byte[]> consumer, String clientRack) {
         String effectiveRack = clientRack != null ? clientRack : getEffectiveRack();
         
-        BlockingQueue<KafkaConsumer<String, String>> pool = consumerPools.get(effectiveRack);
+        BlockingQueue<KafkaConsumer<String, byte[]>> pool = consumerPools.get(effectiveRack);
         if (pool != null && pool.size() < MAX_POOL_SIZE) {
             pool.offer(consumer);
             logger.debug("Returned consumer to pool for rack: {}", effectiveRack);
@@ -140,7 +140,7 @@ public class KafkaConnectionPool {
     private void createPool(String rack) {
         consumerPools.computeIfAbsent(rack, r -> {
             logger.info("Creating new consumer pool for rack: {}", r);
-            BlockingQueue<KafkaConsumer<String, String>> pool = new LinkedBlockingQueue<>();
+            BlockingQueue<KafkaConsumer<String, byte[]>> pool = new LinkedBlockingQueue<>();
             
             // Pre-populate with minimum consumers
             for (int i = 0; i < MIN_POOL_SIZE; i++) {
@@ -156,7 +156,7 @@ public class KafkaConnectionPool {
     /**
      * Create a new KafkaConsumer instance
      */
-    private KafkaConsumer<String, String> createConsumer(String clientRack) {
+    private KafkaConsumer<String, byte[]> createConsumer(String clientRack) {
         Properties props = new Properties();
         
         // Use external config if available
@@ -165,7 +165,7 @@ public class KafkaConnectionPool {
         props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, effectiveBootstrapServers);
         props.put(ConsumerConfig.GROUP_ID_CONFIG, "pooled-consumer-group-" + clientRack);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer");
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer");
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArrayDeserializer");
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 

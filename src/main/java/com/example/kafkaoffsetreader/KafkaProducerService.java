@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class KafkaProducerService {
 
-    private final Map<String, KafkaProducer<String, String>> producerPool = new ConcurrentHashMap<>();
+    private final Map<String, KafkaProducer<String, byte[]>> producerPool = new ConcurrentHashMap<>();
     
     @Autowired
     private ExternalConfigLoader configLoader;
@@ -28,7 +28,7 @@ public class KafkaProducerService {
     @Async
     public CompletableFuture<Map<String, Object>> sendAsync(String topic, Map<String, Object> request, String clientRack) {
         try {
-            KafkaProducer<String, String> producer = getProducer(clientRack);
+            KafkaProducer<String, byte[]> producer = getProducer(clientRack);
             
             // Safe cast with validation
             Object recordsObj = request.get("records");
@@ -41,16 +41,30 @@ public class KafkaProducerService {
             List<Map<String, Object>> offsets = new ArrayList<>();
             
             for (Map<String, Object> record : records) {
-                String key = (String) record.get("key");
-                String value = (String) record.get("value");
-                Integer partition = (Integer) record.get("partition");
+                String key = (String) record.get("key");  // Optional
+                Object valueObj = record.get("value");
+                Integer partition = (Integer) record.get("partition");  // Optional
                 
-                ProducerRecord<String, String> producerRecord = partition != null ?
-                    new ProducerRecord<>(topic, partition, key, value) :
-                    new ProducerRecord<>(topic, key, value);
+                byte[] valueBytes;
+                if (valueObj instanceof String) {
+                    valueBytes = ((String) valueObj).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                } else {
+                    valueBytes = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsBytes(valueObj);
+                }
+                
+                // Create ProducerRecord based on what's provided
+                ProducerRecord<String, byte[]> producerRecord;
+                if (partition != null && key != null) {
+                    producerRecord = new ProducerRecord<>(topic, partition, key, valueBytes);
+                } else if (partition != null) {
+                    producerRecord = new ProducerRecord<>(topic, partition, null, valueBytes);
+                } else if (key != null) {
+                    producerRecord = new ProducerRecord<>(topic, key, valueBytes);
+                } else {
+                    producerRecord = new ProducerRecord<>(topic, valueBytes);
+                }
                 
                 RecordMetadata metadata = producer.send(producerRecord).get();
-                
                 Map<String, Object> offsetInfo = new HashMap<>();
                 offsetInfo.put("partition", metadata.partition());
                 offsetInfo.put("offset", metadata.offset());
@@ -65,9 +79,8 @@ public class KafkaProducerService {
         }
     }
 
-    private KafkaProducer<String, String> getProducer(String rack) {
+    private KafkaProducer<String, byte[]> getProducer(String rack) {
         String poolKey = rack != null ? rack : "default";
-        
         return producerPool.computeIfAbsent(poolKey, k -> {
             Properties props = createProducerProperties(rack);
             return new KafkaProducer<>(props);
@@ -80,8 +93,8 @@ public class KafkaProducerService {
         // Basic producer config
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, 
             configLoader.getProperty("kafka.bootstrap.servers", "localhost:9092"));
-        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+    props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+    props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArraySerializer");
         
         // Performance settings from ER config
         copyIfPresent(props, "kafka.acks", ProducerConfig.ACKS_CONFIG);
