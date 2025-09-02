@@ -31,10 +31,14 @@ public class KafkaReaderController {
         @PathVariable int partition,
         @RequestParam long offset,
         @RequestParam(defaultValue = "1") int count,
-        @RequestParam(required = false) String clientRack
+        @RequestParam(required = false) String clientRack,
+        @RequestHeader(value = "Accept", defaultValue = "application/json") String acceptHeader
     ) {
+        // Determine format based on Accept header
+        boolean useJsonFormat = acceptHeader.contains("application/vnd.kafka.json.v1+json");
+        
         // Use service-level partition validation for performance
-        return kafkaReaderService.readAsync(topic, partition, offset, count, clientRack)
+        return kafkaReaderService.readAsync(topic, partition, offset, count, clientRack, useJsonFormat)
             .thenApply(messages -> ResponseEntity.ok((Object) messages))
             .exceptionally(ex -> {
                 // Handle invalid partition exceptions

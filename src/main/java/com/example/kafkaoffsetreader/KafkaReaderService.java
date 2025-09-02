@@ -46,13 +46,20 @@ public class KafkaReaderService {
      * Synchronous read method for compatibility
      */
     public List<Map<String, Object>> read(String topic, int partition, long offset, int count) {
-        return read(topic, partition, offset, count, null);
+        return read(topic, partition, offset, count, null, false);
     }
     
     /**
      * Synchronous read with rack preference
      */
     public List<Map<String, Object>> read(String topic, int partition, long offset, int count, String clientRack) {
+        return read(topic, partition, offset, count, clientRack, false);
+    }
+    
+    /**
+     * Synchronous read with rack preference and format selection
+     */
+    public List<Map<String, Object>> read(String topic, int partition, long offset, int count, String clientRack, boolean useJsonFormat) {
         long startTime = System.currentTimeMillis();
         List<Map<String, Object>> results = new ArrayList<>();
         KafkaConsumer<String, byte[]> consumer = null;
@@ -93,16 +100,44 @@ public class KafkaReaderService {
                 Map<String, Object> message = new LinkedHashMap<>();
                 message.put("topic", record.topic());
                 
-                // Encode key as base64 if exists
+                // Handle key based on format
                 if (record.key() != null) {
-                    message.put("key", Base64.getEncoder().encodeToString(record.key().getBytes()));
+                    if (useJsonFormat) {
+                        // For JSON format, try to parse as JSON, otherwise return as string
+                        try {
+                            String keyString = record.key();
+                            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                            Object parsedKey = mapper.readValue(keyString, Object.class);
+                            message.put("key", parsedKey);
+                        } catch (Exception e) {
+                            // If not valid JSON, return as string
+                            message.put("key", record.key());
+                        }
+                    } else {
+                        // For standard format, always base64 encode
+                        message.put("key", Base64.getEncoder().encodeToString(record.key().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+                    }
                 } else {
                     message.put("key", null);
                 }
                 
-                // Encode value as base64 if exists
+                // Handle value based on format
                 if (record.value() != null) {
-                    message.put("value", Base64.getEncoder().encodeToString(record.value()));
+                    if (useJsonFormat) {
+                        // For JSON format, try to parse as JSON
+                        try {
+                            String valueString = new String(record.value(), java.nio.charset.StandardCharsets.UTF_8);
+                            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                            Object parsedValue = mapper.readValue(valueString, Object.class);
+                            message.put("value", parsedValue);
+                        } catch (Exception e) {
+                            // If not valid JSON or UTF-8, return as base64
+                            message.put("value", Base64.getEncoder().encodeToString(record.value()));
+                        }
+                    } else {
+                        // For standard format, always base64 encode
+                        message.put("value", Base64.getEncoder().encodeToString(record.value()));
+                    }
                 } else {
                     message.put("value", null);
                 }
@@ -136,8 +171,16 @@ public class KafkaReaderService {
      */
     @Async
     public CompletableFuture<List<Map<String, Object>>> readAsync(String topic, int partition, long offset, int count, String clientRack) {
+        return readAsync(topic, partition, offset, count, clientRack, false);
+    }
+    
+    /**
+     * Asynchronous read method with format selection
+     */
+    @Async
+    public CompletableFuture<List<Map<String, Object>>> readAsync(String topic, int partition, long offset, int count, String clientRack, boolean useJsonFormat) {
         try {
-            List<Map<String, Object>> result = read(topic, partition, offset, count, clientRack);
+            List<Map<String, Object>> result = read(topic, partition, offset, count, clientRack, useJsonFormat);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             CompletableFuture<List<Map<String, Object>>> future = new CompletableFuture<>();

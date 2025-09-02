@@ -41,25 +41,28 @@ public class KafkaProducerService {
             List<Map<String, Object>> offsets = new ArrayList<>();
             
             for (Map<String, Object> record : records) {
-                String key = (String) record.get("key");  // Optional
+                Object keyObj = record.get("key");  // Optional - can be any type
                 Object valueObj = record.get("value");
                 Integer partition = (Integer) record.get("partition");  // Optional
                 
-                byte[] valueBytes;
-                if (valueObj instanceof String) {
-                    valueBytes = ((String) valueObj).getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                } else {
-                    valueBytes = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsBytes(valueObj);
+                // Handle key - JSON serialize like REST proxy
+                String keyString = null;
+                if (keyObj != null) {
+                    keyString = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(keyObj);
                 }
+                
+                // Handle value - JSON serialize like REST proxy
+                String valueString = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(valueObj);
+                byte[] valueBytes = valueString.getBytes(java.nio.charset.StandardCharsets.UTF_8);
                 
                 // Create ProducerRecord based on what's provided
                 ProducerRecord<String, byte[]> producerRecord;
-                if (partition != null && key != null) {
-                    producerRecord = new ProducerRecord<>(topic, partition, key, valueBytes);
+                if (partition != null && keyString != null) {
+                    producerRecord = new ProducerRecord<>(topic, partition, keyString, valueBytes);
                 } else if (partition != null) {
                     producerRecord = new ProducerRecord<>(topic, partition, null, valueBytes);
-                } else if (key != null) {
-                    producerRecord = new ProducerRecord<>(topic, key, valueBytes);
+                } else if (keyString != null) {
+                    producerRecord = new ProducerRecord<>(topic, keyString, valueBytes);
                 } else {
                     producerRecord = new ProducerRecord<>(topic, valueBytes);
                 }
