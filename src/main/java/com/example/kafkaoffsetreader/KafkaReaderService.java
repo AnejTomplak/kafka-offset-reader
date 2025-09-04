@@ -77,17 +77,19 @@ public class KafkaReaderService {
             
             TopicPartition tp = new TopicPartition(topic, partition);
             consumer.assign(Collections.singletonList(tp));
-            
-            // Handle special offsets: -1 = beginning, -2 = end
-            long effectiveOffset = offset;
-            if (offset == -1) {
-                effectiveOffset = consumer.beginningOffsets(Collections.singletonList(tp)).getOrDefault(tp, 0L);
-            } else if (offset == -2) {
-                effectiveOffset = consumer.endOffsets(Collections.singletonList(tp)).getOrDefault(tp, 0L);
-            } else if (offset < 0) {
-                throw new IllegalArgumentException("Invalid offset: " + offset + ". Use -1 for beginning, -2 for end, or >= 0 for specific offset");
+
+            // Determine valid offset range for this partition
+            long beginningOffset = consumer.beginningOffsets(Collections.singletonList(tp)).get(tp);
+            long endOffset = consumer.endOffsets(Collections.singletonList(tp)).get(tp); // first free offset (one past last message)
+
+            // Strict validation: offset must map to an existing record
+            if (offset < beginningOffset || offset >= endOffset) {
+                throw new IllegalArgumentException(
+                        "Offset " + offset + " out of range [" + beginningOffset + ", " + (endOffset - 1) + "] for " +
+                        topic + "-" + partition);
             }
-            
+
+            long effectiveOffset = offset; 
             consumer.seek(tp, effectiveOffset);
             
             logger.debug("Reading from topic={} partition={} offset={} (effective={}) rack={}", 

@@ -95,9 +95,9 @@ public class KafkaProducerService {
         
         // Basic producer config
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, 
-            configLoader.getProperty("kafka.bootstrap.servers", "localhost:9092"));
-    props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-    props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArraySerializer");
+        configLoader.getProperty("kafka.bootstrap.servers", "localhost:9092"));
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArraySerializer");
         
         // Performance settings from ER config
         copyIfPresent(props, "kafka.acks", ProducerConfig.ACKS_CONFIG);
