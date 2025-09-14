@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import javax.servlet.http.HttpServletRequest;
 
 @RestController
 public class KafkaReaderController {
@@ -32,33 +33,45 @@ public class KafkaReaderController {
         @RequestParam long offset,
         @RequestParam(defaultValue = "1") int count,
         @RequestParam(required = false) String clientRack,
-        @RequestHeader(value = "Accept", defaultValue = "application/json") String acceptHeader
+        @RequestHeader(value = "Accept", defaultValue = "application/json") String acceptHeader,
+        HttpServletRequest request
     ) {
-        // Determine format based on Accept header
+        long start = System.currentTimeMillis();
         boolean useJsonFormat = acceptHeader.contains("application/vnd.kafka.json.v1+json");
-        
-        // Use service-level partition validation for performance
+
         return kafkaReaderService.readAsync(topic, partition, offset, count, clientRack, useJsonFormat)
-            .thenApply(messages -> ResponseEntity.ok((Object) messages))
+            .thenApply(messages -> {
+                ResponseEntity<Object> response = ResponseEntity.ok((Object) messages);
+                logRestStyle(request, start, 200, messages);
+                return response;
+            })
             .exceptionally(ex -> {
-                // Handle invalid partition exceptions
-                if (ex.getCause() instanceof IllegalArgumentException) {
-                    Map<String, Object> error = new HashMap<>();
-                    error.put("error", ex.getCause().getMessage());
-                    error.put("topic", topic);
-                    error.put("partition", partition);
-                    error.put("offset", offset);
-                    return ResponseEntity.status(HttpStatus.NOT_FOUND).body((Object) error);
-                }
-                
-                // Handle other exceptions
+                Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                int status = HttpStatus.INTERNAL_SERVER_ERROR.value();
                 Map<String, Object> error = new HashMap<>();
-                error.put("error", "Failed to read messages: " + ex.getMessage());
-                error.put("topic", topic);
-                error.put("partition", partition);
-                error.put("offset", offset);
-                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body((Object) error);
+                // Kafka REST proxy style:
+                error.put("error_code", 50002);
+                error.put("message", cause.getMessage() != null ? cause.getMessage() : "Kafka error");
+                logRestStyle(request, start, status, error);
+                return ResponseEntity.status(status).body(error);
             });
+    }
+
+    private void logRestStyle(HttpServletRequest request, long start, int status, Object body) {
+        int bytes = 0;
+        try {
+            bytes = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsBytes(body).length;
+        } catch (Exception ignore) {}
+        String now = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss,SSS")
+                .format(java.time.LocalDateTime.now());
+        System.out.printf("[%s] INFO \"%s %s%s\" %d %d%n",
+                now,
+                request.getMethod(),
+                request.getRequestURI(),
+                request.getQueryString() != null ? "?" + request.getQueryString() : "",
+                status,
+                bytes
+        );
     }
 
     /**
