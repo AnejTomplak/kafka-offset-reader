@@ -1,12 +1,10 @@
 package com.example.kafkaoffsetreader;
 
-import com.example.kafkaoffsetreader.config.ExternalConfigLoader;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -41,8 +39,6 @@ public class KafkaConnectionPool {
     @Value("${kafka.client.rack:}")
     private String defaultClientRack;
     
-    @Autowired
-    private ExternalConfigLoader configLoader;
     
     // Pool configuration
     private static final int MAX_POOL_SIZE = 50;
@@ -158,18 +154,16 @@ public class KafkaConnectionPool {
      */
     private KafkaConsumer<String, byte[]> createConsumer(String clientRack) {
         Properties props = new Properties();
-        
-        // Use external config if available
-        String effectiveBootstrapServers = configLoader.getProperty("kafka.bootstrap.servers", bootstrapServers);
-        
-        props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, effectiveBootstrapServers);
+
+        // Use Spring Boot injected property
+        props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         props.put(ConsumerConfig.GROUP_ID_CONFIG, "pooled-consumer-group-" + clientRack);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringDeserializer");
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.ByteArrayDeserializer");
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 
-        // Performance defaults (can be overridden by ER properties below)
+        // Performance defaults
         props.put(ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG, "500");
         props.put(ConsumerConfig.FETCH_MIN_BYTES_CONFIG, "1");
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "500");
@@ -179,47 +173,28 @@ public class KafkaConnectionPool {
         props.put(CommonClientConfigs.CONNECTIONS_MAX_IDLE_MS_CONFIG, "300000");
         props.put(ConsumerConfig.METADATA_MAX_AGE_CONFIG, "180000");
 
-        // Overlay external overrides from ER config (kafka.*)
-        copyIfPresent(props, "kafka.fetch.max.wait.ms", ConsumerConfig.FETCH_MAX_WAIT_MS_CONFIG);
-        copyIfPresent(props, "kafka.fetch.min.bytes", ConsumerConfig.FETCH_MIN_BYTES_CONFIG);
-        copyIfPresent(props, "kafka.max.partition.fetch.bytes", ConsumerConfig.MAX_PARTITION_FETCH_BYTES_CONFIG);
-        copyIfPresent(props, "kafka.max.poll.records", ConsumerConfig.MAX_POLL_RECORDS_CONFIG);
-        copyIfPresent(props, "kafka.receive.buffer.bytes", CommonClientConfigs.RECEIVE_BUFFER_CONFIG);
-        copyIfPresent(props, "kafka.send.buffer.bytes", CommonClientConfigs.SEND_BUFFER_CONFIG);
-        copyIfPresent(props, "kafka.connections.max.idle.ms", CommonClientConfigs.CONNECTIONS_MAX_IDLE_MS_CONFIG);
-        copyIfPresent(props, "kafka.request.timeout.ms", CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG);
-        copyIfPresent(props, "kafka.session.timeout.ms", ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG);
-        copyIfPresent(props, "kafka.heartbeat.interval.ms", ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG);
-        copyIfPresent(props, "kafka.metadata.max.age.ms", ConsumerConfig.METADATA_MAX_AGE_CONFIG);
-
-        // Client ID: allow ER override as prefix, always append unique suffix to avoid collisions
-        String erClientId = configLoader.getProperty("kafka.client.id", null);
-        String clientIdPrefix = ( erClientId != null && !erClientId.isEmpty() ) ? erClientId : ("pooled-consumer-" + clientRack);
+        // Client ID: use default prefix, always append unique suffix to avoid collisions
+        String clientIdPrefix = ("pooled-consumer-" + clientRack);
         props.put(CommonClientConfigs.CLIENT_ID_CONFIG, clientIdPrefix + "-" + UUID.randomUUID());
 
         // Rack-aware configuration
-        String erRack = configLoader.getProperty("kafka.client.rack", "");
         if (clientRack != null && !"default".equalsIgnoreCase(clientRack)) {
             // Explicit pool rack wins
             props.put(CommonClientConfigs.CLIENT_RACK_CONFIG, clientRack);
-        } else if (erRack != null && !erRack.isEmpty()) {
-            // Fall back to ER-configured rack for default pool if provided
-            props.put(CommonClientConfigs.CLIENT_RACK_CONFIG, erRack);
         }
 
         logger.info("Creating consumer for rack='{}' (client.rack='{}')", clientRack,
                 props.getProperty(CommonClientConfigs.CLIENT_RACK_CONFIG, ""));
         return new KafkaConsumer<>(props);
     }
-    
+
     /**
      * Get effective rack from configuration hierarchy
      */
     private String getEffectiveRack() {
-        String configClientRack = configLoader.getProperty("kafka.client.rack", defaultClientRack);
-        return configClientRack.isEmpty() ? "default" : configClientRack;
+        return defaultClientRack.isEmpty() ? "default" : defaultClientRack;
     }
-    
+
     /**
      * Get pool statistics for monitoring
      */
@@ -242,58 +217,11 @@ public class KafkaConnectionPool {
      */
     public Properties getAdminProperties() {
         Properties props = new Properties();
-        
-        // Use external config if available
-        String effectiveBootstrapServers = configLoader.getProperty("kafka.bootstrap.servers", bootstrapServers);
-        props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, effectiveBootstrapServers);
-        
-        // Apply performance settings for AdminClient
-        copyIfPresent(props, "kafka.request.timeout.ms", CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG);
-        copyIfPresent(props, "kafka.connections.max.idle.ms", CommonClientConfigs.CONNECTIONS_MAX_IDLE_MS_CONFIG);
-        copyIfPresent(props, "kafka.metadata.max.age.ms", "metadata.max.age.ms");
-        
+        // Use Spring Boot injected property
+        props.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         // Client ID for AdminClient
-        String erClientId = configLoader.getProperty("kafka.client.id", "er-kafka-admin");
-        props.put(CommonClientConfigs.CLIENT_ID_CONFIG, erClientId + "-admin-" + UUID.randomUUID());
-        
-        // Rack configuration for AdminClient
-        String erRack = configLoader.getProperty("kafka.client.rack", "");
-        if (erRack != null && !erRack.isEmpty()) {
-            props.put(CommonClientConfigs.CLIENT_RACK_CONFIG, erRack);
-        }
-        
+        props.put(CommonClientConfigs.CLIENT_ID_CONFIG, "admin-" + UUID.randomUUID());
+        // No rack config for AdminClient
         return props;
-    }
-
-    /**
-     * Copy a Kafka client property from ER config into the given Properties if present
-     */
-    private void copyIfPresent(Properties target, String erKey, String kafkaKey) {
-        String v = configLoader.getProperty(erKey, null);
-        if (v != null) {
-            String sanitized = sanitizeValue(v);
-            if (!sanitized.isEmpty()) {
-                target.put(kafkaKey, sanitized);
-            }
-        }
-    }
-
-    /**
-     * Remove inline comments and trim value to ensure numeric/string configs are valid.
-     * Supports '#' and ';' comment markers and trims whitespace.
-     */
-    private String sanitizeValue(String raw) {
-        String s = raw;
-        int hash = s.indexOf('#');
-        int semi = s.indexOf(';');
-        int dblSlash = s.indexOf("//");
-        int cut = -1;
-        if (hash >= 0) cut = hash;
-        if (semi >= 0) cut = (cut < 0) ? semi : Math.min(cut, semi);
-        if (dblSlash >= 0) cut = (cut < 0) ? dblSlash : Math.min(cut, dblSlash);
-        if (cut >= 0) {
-            s = s.substring(0, cut);
-        }
-        return s.trim();
     }
 }

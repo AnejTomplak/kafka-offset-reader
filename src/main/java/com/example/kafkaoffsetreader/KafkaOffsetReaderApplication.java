@@ -11,17 +11,31 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Properties;
 
+
 @SpringBootApplication
 @EnableAsync
 public class KafkaOffsetReaderApplication {
 
     public static void main(String[] args) {
+
         String configFile = null;
         
         // Check if config file argument is provided
         if (args.length > 0) {
-            configFile = args[0];
-            System.out.println("Using specified configuration file: " + configFile);
+            Path argPath = Paths.get(args[0]);
+            if (Files.exists(argPath) && Files.isReadable(argPath)) {
+                configFile = args[0];
+                System.out.println("Using specified configuration file: " + configFile);
+            } else {
+                // Try one directory up (useful if running from target/)
+                Path parentPath = Paths.get("..", args[0]);
+                if (Files.exists(parentPath) && Files.isReadable(parentPath)) {
+                    configFile = parentPath.toString();
+                    System.out.println("Using configuration file from parent directory: " + configFile);
+                } else {
+                    System.out.println("Specified configuration file not found: " + args[0]);
+                }
+            }
         } else {
             // Try to find default config file in current directory
             String[] defaultPaths = {
