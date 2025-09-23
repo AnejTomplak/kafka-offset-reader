@@ -89,66 +89,60 @@ public class KafkaReaderService {
                         topic + "-" + partition);
             }
 
+
             long effectiveOffset = offset; 
             consumer.seek(tp, effectiveOffset);
-            
+
             logger.debug("Reading from topic={} partition={} offset={} (effective={}) rack={}", 
                 topic, partition, offset, effectiveOffset, clientRack != null ? clientRack : "default");
-            
-            ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofMillis(500));
-            
-            for (ConsumerRecord<String, byte[]> record : records) {
-                // Create response object in Kafka REST proxy format - topic, key, value, partition, offset order
-                Map<String, Object> message = new LinkedHashMap<>();
-                message.put("topic", record.topic());
-                
-                // Handle key based on format
-                if (record.key() != null) {
-                    if (useJsonFormat) {
-                        // For JSON format, try to parse as JSON, otherwise return as string
-                        try {
-                            String keyString = record.key();
-                            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                            Object parsedKey = mapper.readValue(keyString, Object.class);
-                            message.put("key", parsedKey);
-                        } catch (Exception e) {
-                            // If not valid JSON, return as string
-                            message.put("key", record.key());
+
+            while (results.size() < count) {
+                ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofMillis(500));
+                if (records.isEmpty()) {
+                    break; // No more messages available
+                }
+                for (ConsumerRecord<String, byte[]> record : records) {
+                    Map<String, Object> message = new LinkedHashMap<>();
+                    message.put("topic", record.topic());
+                    // ... key and value handling as before ...
+                    if (record.key() != null) {
+                        if (useJsonFormat) {
+                            try {
+                                String keyString = record.key();
+                                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                                Object parsedKey = mapper.readValue(keyString, Object.class);
+                                message.put("key", parsedKey);
+                            } catch (Exception e) {
+                                message.put("key", record.key());
+                            }
+                        } else {
+                            message.put("key", Base64.getEncoder().encodeToString(record.key().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
                         }
                     } else {
-                        // For standard format, always base64 encode
-                        message.put("key", Base64.getEncoder().encodeToString(record.key().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+                        message.put("key", null);
                     }
-                } else {
-                    message.put("key", null);
-                }
-                
-                // Handle value based on format
-                if (record.value() != null) {
-                    if (useJsonFormat) {
-                        // For JSON format, try to parse as JSON
-                        try {
-                            String valueString = new String(record.value(), java.nio.charset.StandardCharsets.UTF_8);
-                            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                            Object parsedValue = mapper.readValue(valueString, Object.class);
-                            message.put("value", parsedValue);
-                        } catch (Exception e) {
-                            // If not valid JSON or UTF-8, return as base64
+                    if (record.value() != null) {
+                        if (useJsonFormat) {
+                            try {
+                                String valueString = new String(record.value(), java.nio.charset.StandardCharsets.UTF_8);
+                                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                                Object parsedValue = mapper.readValue(valueString, Object.class);
+                                message.put("value", parsedValue);
+                            } catch (Exception e) {
+                                message.put("value", Base64.getEncoder().encodeToString(record.value()));
+                            }
+                        } else {
                             message.put("value", Base64.getEncoder().encodeToString(record.value()));
                         }
                     } else {
-                        // For standard format, always base64 encode
-                        message.put("value", Base64.getEncoder().encodeToString(record.value()));
+                        message.put("value", null);
                     }
-                } else {
-                    message.put("value", null);
+                    message.put("partition", record.partition());
+                    message.put("offset", record.offset());
+
+                    results.add(message);
+                    if (results.size() >= count) break;
                 }
-                
-                message.put("partition", record.partition());
-                message.put("offset", record.offset());
-                
-                results.add(message);
-                if (results.size() >= count) break;
             }
             
             long duration = System.currentTimeMillis() - startTime;
