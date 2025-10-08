@@ -28,6 +28,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * - Rack-aware consumer separation
  * - Automatic connection cleanup
  */
+
 @Component
 public class KafkaConnectionPool {
     
