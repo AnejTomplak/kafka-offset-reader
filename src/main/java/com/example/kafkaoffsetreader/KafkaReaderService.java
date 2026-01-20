@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -41,6 +42,9 @@ public class KafkaReaderService {
     
     @Autowired
     private KafkaConnectionPool connectionPool;
+
+    @Value("${kafka.read.poll.timeout.ms:200}")
+    private long readPollTimeoutMs;
     
     /**
      * Synchronous read method for compatibility
@@ -100,7 +104,8 @@ public class KafkaReaderService {
                     topic, partition, offset, effectiveOffset, clientRack != null ? clientRack : "default");
 
                 while (true) {
-                    ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofMillis(2000));
+
+                    ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofMillis(readPollTimeoutMs));
                     long lastOffset = -1;
 
                     for (ConsumerRecord<String, byte[]> record : records) {
